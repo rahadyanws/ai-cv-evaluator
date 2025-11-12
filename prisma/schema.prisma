@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  filename  String
+  path      String
+  type      String   // 'cv' or 'report'
+  createdAt DateTime @default(now())
+
+  // Relasi balik ke Job
+  jobAsCV     Job? @relation("JobCV")
+  jobAsReport Job? @relation("JobReport")
+
+  @@map("documents")
+}
+
+model Job {
+  id        String   @id @default(uuid())
+  title     String
+  status    String   @default("queued") // 'queued', 'processing', 'completed', 'failed'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Foreign keys
+  cvId      String   @unique
+  reportId  String   @unique
+
+  // Relasi ke Document
+  cv        Document @relation("JobCV", fields: [cvId], references: [id])
+  report    Document @relation("JobReport", fields: [reportId], references: [id])
+
+  // Relasi ke Result
+  result    Result?
+
+  @@map("jobs")
+}
+
+model Result {
+  id              String   @id @default(uuid())
+  jobId           String   @unique
+  cvMatchRate     Float?
+  projectScore    Float?
+  cvFeedback      String?
+  projectFeedback String?
+  overallSummary  String?
+  createdAt       DateTime @default(now())
+
+  job             Job      @relation(fields: [jobId], references: [id])
+
+  @@map("results")
+}
