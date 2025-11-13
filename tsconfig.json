@@ -6,6 +6,7 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
@@ -19,8 +20,7 @@
     "noFallthroughCasesInSwitch": false,
     "paths": {
       "@/*": ["src/*"],
-      "@db": ["generated/prisma"],
-      "@db/*": ["generated/prisma/*"]
+      "@prisma/*": ["generated/prisma/*"]
     }
   }
 }
