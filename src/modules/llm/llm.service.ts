@@ -152,11 +152,11 @@ export class LlmService {
       // Ini akan memberi tahu WorkerProcessor bahwa job-nya gagal,
       // dan BullMQ akan otomatis mencoba lagi (sesuai attempts: 3).
       // return null;
-      // throw error; // Lempar error agar BullMQ bisa menangani retry
+      throw error; // Lempar error agar BullMQ bisa menangani retry
       // --- 👆 REVISI KUNCI DI SINI 👆 ---
 
       // Jangan lempar error, kembalikan null agar pipeline bisa lanjut
-      return null;
+      // return null;
     }
   }
 }

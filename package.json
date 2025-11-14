@@ -32,6 +32,7 @@
     "@qdrant/js-client-rest": "^1.15.1",
     "@qdrant/openapi-typescript-fetch": "^1.2.6",
     "bullmq": "^5.63.0",
+    "canvas": "^3.2.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "dotenv": "^17.2.3",
