@@ -1,11 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+/**
+ * @file result.service.ts
+ * @description This service handles the business logic for the
+ * GET /api/result/:id endpoint. It retrieves the job status
+ * and formats the final result.
+ */
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JobsService } from '@/modules/jobs/jobs.service';
-// ⛔️ JANGAN GUNAKAN: import { Job, Result } from '@db';
-// ✅ GUNAKAN INI (Sesuai tsconfig.json Anda):
+// Import Prisma types from the generated client
 import { Job, Result } from '@prisma/client';
 
-// Tipe data yang akan kita kembalikan, gabungan dari Job dan Result
-export type FormattedResult = {
+/**
+ * Defines the API response shape for the GET /api/result/:id endpoint.
+ * This matches the structure requested in the case study.
+ */
+export type JobResultResponse = {
   id: string;
   status: string;
   result?: {
@@ -17,42 +25,59 @@ export type FormattedResult = {
   };
 };
 
+/**
+ * Service responsible for fetching and formatting evaluation job results.
+ */
 @Injectable()
 export class ResultService {
+  private readonly logger = new Logger(ResultService.name);
+
   constructor(private readonly jobsService: JobsService) {}
 
   /**
-   * Mengambil hasil job berdasarkan ID.
-   * Ini akan memformat data agar sesuai dengan Case Study.
+   * Retrieves and formats a job's status and result by its ID.
+   * This is the main logic for the GET /api/result/:id endpoint.
+   * @param jobId The UUID of the job to fetch.
+   * @returns A formatted job result object.
+   * @throws {NotFoundException} If no job is found with the given ID.
    */
-  async getJobResult(jobId: string): Promise<FormattedResult> {
+  async getJobResult(jobId: string): Promise<JobResultResponse> {
+    this.logger.log(`Fetching result for Job ID: ${jobId}`);
+    // Delegate the database call to the centralized JobsService
     const job = await this.jobsService.getJobWithResult(jobId);
 
     if (!job) {
+      this.logger.warn(`Job not found with ID: ${jobId}`);
       throw new NotFoundException(`Job with ID ${jobId} not found`);
     }
 
-    // Format respons sesuai dengan Case Study [cite: 37-53]
+    // Pass the job to the private formatter helper
     return this.formatResult(job);
   }
 
   /**
-   * Helper privat untuk memformat data dari DB
-   * agar sesuai dengan respons API yang diminta.
+   * A private helper to format the raw database object
+   * into the standardized API response.
+   * @param job The job object retrieved from the database.
    */
-  private formatResult(job: Job & { result: Result | null }): FormattedResult {
-    // Kasus 1: Job masih 'queued' or 'processing', 'result' belum ada
-    if (!job.result || job.status !== 'completed') {
+  private formatResult(
+    job: Job & { result: Result | null },
+  ): JobResultResponse {
+    // Case 1: Job is not 'completed' (e.g., 'queued', 'processing', 'failed')
+    // or the result data somehow doesn't exist.
+    // Return the simple status response as per the case study.
+    if (job.status !== 'completed' || !job.result) {
       return {
         id: job.id,
-        status: job.status, // "queued" or "processing" or "failed"
+        status: job.status,
       };
     }
 
-    // Kasus 2: Job sudah 'completed', 'result' ada
+    // Case 2: Job is 'completed' and has a result.
+    // Return the full, detailed response.
     return {
       id: job.id,
-      status: job.status, // "completed"
+      status: job.status,
       result: {
         cv_match_rate: job.result.cvMatchRate,
         cv_feedback: job.result.cvFeedback,

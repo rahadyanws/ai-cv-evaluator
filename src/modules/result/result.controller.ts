@@ -1,32 +1,37 @@
-import {
-  Controller,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  UsePipes,
-  ValidationPipe,
-} from '@nestjs/common';
-import { ResultService, FormattedResult } from './result.service';
+/**
+ * @file result.controller.ts
+ * @description Controller for the GET /api/result/:id endpoint.
+ * This controller is responsible for retrieving the status and
+ * final result of an evaluation job.
+ */
+import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { ResultService, JobResultResponse } from './result.service';
 
 /**
- * Controller untuk mengambil hasil evaluasi.
- * Sesuai arsitektur Anda: /src/modules/result
+ * Controller for the /api/result route.
+ * Follows the "thin controller" principle:
+ * - Delegates all business logic to the ResultService.
+ * - Validates URL parameters.
  */
-@Controller('result') // Akan menjadi /api/result (jika ada global prefix)
-@UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+@Controller('result')
+// Note: @UsePipes(new ValidationPipe(...)) is intentionally omitted
+// because a global ValidationPipe is already applied in main.ts.
 export class ResultController {
   constructor(private readonly resultService: ResultService) {}
 
   /**
-   * Endpoint GET /result/:id
-   * Mengambil status dan hasil dari job evaluasi.
-   * [Sesuai Case Study: GET /result/{id}]
+   * Handles the GET /api/result/:id request.
+   *
+   * Fetches the status and result of a specific evaluation job.
+   * @param id The UUID of the job, extracted from the URL path.
    */
   @Get(':id')
   async getResult(
-    @Param('id', ParseUUIDPipe) id: string, // Otomatis validasi bahwa 'id' adalah UUID
-  ): Promise<FormattedResult> {
-    // Panggil service untuk mengambil dan memformat hasil
+    // ParseUUIDPipe automatically validates that the 'id' param is a UUID,
+    // throwing a 400 Bad Request if the format is incorrect.
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<JobResultResponse> {
+    // Delegate all logic to the service
     return this.resultService.getJobResult(id);
   }
 }
