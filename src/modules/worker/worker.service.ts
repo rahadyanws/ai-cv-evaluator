@@ -254,27 +254,28 @@ export class WorkerService {
    */
   private buildCvEvaluationPrompt(cvText: string, context: string): string {
     return `
-      Anda adalah seorang Perekrut Teknis senior. Tugas Anda adalah mengevaluasi CV kandidat berdasarkan rubrik dan deskripsi pekerjaan yang disediakan.
+      You are a senior Technical Recruiter. Your task is to evaluate a candidate's CV.
+      You MUST respond ONLY with a valid JSON format.
 
-      Konteks (Rubrik & Deskripsi Pekerjaan):
+      CONTEXT (Job Description & Scoring Rubric):
       ---
       ${context}
       ---
 
-      CV Kandidat:
+      CANDIDATE'S CV:
       ---
       ${cvText}
       ---
 
-      Tugas:
-      1. Evaluasi CV kandidat (skor 0.0 hingga 1.0) berdasarkan seberapa cocok dia dengan Konteks.
-      2. Berikan feedback singkat (2-3 kalimat) yang menjelaskan skor Anda.
-      3. Kembalikan HANYA JSON. JANGAN tambahkan teks lain.
+      Instructions:
+      1. Compare the CANDIDATE'S CV against the CONTEXT.
+      2. Provide a "score" (Float between 0.0 and 1.0) representing how well the CV matches the CONTEXT. 1.0 is a perfect match.
+      3. Provide "feedback" (String) summarizing the candidate's strengths and weaknesses based on the CONTEXT.
 
-      Format JSON:
+      Respond ONLY with the following JSON format:
       {
-        "score": <skor_float_antara_0.0_dan_1.0>,
-        "feedback": "<feedback_singkat_anda>"
+        "score": <float_score_0.0_to_1.0>,
+        "feedback": "<string_feedback>"
       }
     `;
   }
@@ -287,27 +288,28 @@ export class WorkerService {
     context: string,
   ): string {
     return `
-      Anda adalah seorang Staf Backend Engineer. Tugas Anda adalah mengevaluasi laporan proyek (case study) kandidat berdasarkan rubrik yang disediakan.
+      You are a Principal Backend Engineer. Your task is to evaluate a candidate's Project Report (Case Study).
+      You MUST respond ONLY with a valid JSON format.
 
-      Konteks (Rubrik Penilaian):
+      CONTEXT (Case Study Scoring Rubric):
       ---
       ${context}
       ---
 
-      Laporan Proyek Kandidat:
+      CANDIDATE'S PROJECT REPORT:
       ---
       ${reportText}
       ---
 
-      Tugas:
-      1. Evaluasi laporan proyek (skor 1.0 hingga 5.0) berdasarkan seberapa baik laporan itu memenuhi kriteria dalam Konteks.
-      2. Berikan feedback singkat (2-3 kalimat) yang menjelaskan skor Anda, sebutkan poin kuat dan lemahnya.
-      3. Kembalikan HANYA JSON. JANGAN tambahkan teks lain.
+      Instructions:
+      1. Compare the CANDIDATE'S PROJECT REPORT against the CONTEXT (Rubric).
+      2. Provide a "score" (Float between 1.0 and 5.0) representing how well the project report meets the rubric. 5.0 is a perfect score.
+      3. Provide "feedback" (String) summarizing the project report's strengths and weaknesses.
 
-      Format JSON:
+      Respond ONLY with the following JSON format:
       {
-        "score": <skor_float_antara_1.0_dan_5.0>,
-        "feedback": "<feedback_singkat_anda>"
+        "score": <float_score_1.0_to_5.0>,
+        "feedback": "<string_feedback>"
       }
     `;
   }
@@ -321,21 +323,20 @@ export class WorkerService {
     projectEval: LLMEvaluationOutput,
   ): string {
     return `
-      Anda adalah seorang Manajer Perekrutan.
-      Anda telah menerima dua evaluasi untuk seorang kandidat yang melamar sebagai "${jobTitle}":
+      You are a Hiring Manager.
+      Your task is to write a hiring summary (overall_summary) for a candidate applying for "${jobTitle}".
+      You MUST respond ONLY with a single paragraph (as a string).
 
-      1. Evaluasi CV:
-         - Skor: ${cvEval.score.toFixed(2)}/1.0
-         - Feedback: ${cvEval.feedback}
+      CV Evaluation Data (Score: ${cvEval.score.toFixed(2)}/1.0):
+      ${cvEval.feedback}
 
-      2. Evaluasi Proyek:
-         - Skor: ${projectEval.score.toFixed(1)}/5.0
-         - Feedback: ${projectEval.feedback}
+      Project Evaluation Data (Score: ${projectEval.score.toFixed(1)}/5.0):
+      ${projectEval.feedback}
 
-      Tugas:
-      Tulis ringkasan keseluruhan (overall_summary) yang sangat singkat (maksimal 2 kalimat) untuk kandidat ini.
-      Ringkasan ini harus memberikan rekomendasi singkat (misal: "Kandidat kuat", "Kurang cocok", "Perlu ditinjau lebih lanjut").
-      JANGAN kembalikan format JSON. Kembalikan HANYA teks ringkasan.
+      Instructions:
+      Write a concise 2-3 sentence summary concluding the candidate's viability.
+      Mention key strengths, weaknesses, and a recommendation (e.g., "Strong candidate", "Not a good fit", "Recommend for technical interview").
+      Respond ONLY with the summary string. DO NOT return JSON.
     `;
   }
 }
