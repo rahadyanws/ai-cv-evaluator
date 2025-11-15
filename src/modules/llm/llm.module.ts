@@ -1,10 +1,18 @@
+/**
+ * @file llm.module.ts
+ * @description This module encapsulates the LlmService, making it available
+ * for dependency injection throughout the application.
+ */
 import { Module } from '@nestjs/common';
 import { LlmService } from './llm.service';
-import { ConfigModule } from '@nestjs/config'; // Pastikan ConfigModule di-impor
 
+/**
+ * Provides and exports the LlmService.
+ * This module is imported by other modules (like RagModule and WorkerModule)
+ * that need to perform AI operations.
+ */
 @Module({
-  imports: [ConfigModule], // LlmService membutuhkan ConfigService
   providers: [LlmService],
-  exports: [LlmService], // Ekspor service agar bisa dipakai modul lain
+  exports: [LlmService], // Exported for injection in other modules
 })
 export class LlmModule {}

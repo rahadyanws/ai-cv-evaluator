@@ -1,22 +1,29 @@
+/**
+ * @file jobs.service.ts
+ * @description This service centralizes all database interactions
+ * for the `Job` and `Result` models.
+ * It is injected into other services (Evaluate, Worker, Result)
+ * to keep database logic separate and clean.
+ */
 import {
   Injectable,
   Logger,
   NotFoundException,
-  InternalServerErrorException, // <-- PERBAIKAN 1: Impor ditambahkan
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '@/modules/prisma/prisma.service';
-// --- 👇 PERBAIKAN 2: Impor 'Document' sebagai 'PrismaDocument' untuk menghindari konflik 👇 ---
+// Use a type alias ('PrismaDocument') to avoid a name collision
+// with the global DOM 'Document' type.
 import {
   Job,
   Result,
   Prisma,
-  Document as PrismaDocument, // Ganti nama 'Document'
+  Document as PrismaDocument,
 } from '@prisma/client';
-// --- 👆 PERBAIKAN 2 👆 ---
 
 /**
- * Tipe data helper untuk data yang akan disimpan ke tabel Result.
- * Akan digunakan oleh WorkerService.
+ * A type helper defining the data structure for the AI evaluation results.
+ * This is used by WorkerService when saving data.
  */
 export type EvaluationResultData = {
   cvMatchRate: number;
@@ -33,27 +40,33 @@ export class JobsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Membuat entri Job baru di database.
-   * Dipanggil oleh EvaluateService.
+   * Creates a new Job entry in the database with 'queued' status.
+   * Called by EvaluateService.
+   * @param title The job title from the evaluate request.
+   * @param cvId The ID of the uploaded CV document.
+   * @param reportId The ID of the uploaded Report document.
    */
-  async createJob(data: {
-    title: string;
-    cvId: string;
-    reportId: string;
-  }): Promise<Job> {
-    this.logger.log(`Creating new job for: ${data.title}`);
+  async createJob(
+    // --- CRITICAL FIX ---
+    // Changed signature from (data: { ... }) to match how EvaluateService calls it.
+    title: string,
+    cvId: string,
+    reportId: string,
+    // --- END FIX ---
+  ): Promise<Job> {
+    this.logger.log(`Creating new job for: ${title}`);
     try {
       const newJob = await this.prisma.job.create({
         data: {
-          title: data.title,
-          cvId: data.cvId,
-          reportId: data.reportId,
-          status: 'queued', // Status awal
+          title: title,
+          cvId: cvId,
+          reportId: reportId,
+          status: 'queued', // Set initial status
         },
       });
       return newJob;
     } catch (error) {
-      // Tangani error jika cvId atau reportId unik constraint gagal
+      // Handle known Prisma errors (e.g., unique constraint violation on cvId/reportId)
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
           this.logger.warn(
@@ -61,13 +74,18 @@ export class JobsService {
           );
         }
       }
-      throw error;
+      throw error; // Re-throw for the caller to handle
     }
   }
 
   /**
-   * Memperbarui status job (queued -> processing -> completed/failed).
-   * Dipanggil oleh EvaluationWorker (processor).
+   * Updates the status of a job (e.g., 'processing', 'completed', 'failed').
+   * Called by EvaluationWorker.
+   * If the status is 'failed', it also upserts the error message to the
+   * 'overallSummary' field in the related Result table for debugging.
+   * @param jobId The ID of the job to update.
+   * @param status The new status.
+   * @param errorMessage An optional error message to save if status is 'failed'.
    */
   async updateJobStatus(
     jobId: string,
@@ -79,61 +97,64 @@ export class JobsService {
       where: { id: jobId },
       data: {
         status: status,
-        // --- 👇 PERBAIKAN 4: Simpan error di 'overallSummary' (karena 'errorMessage' tidak ada) 👇 ---
+        // If status is 'failed', create/update the result entry
+        // with the error message in the 'overallSummary' field.
+        // We use 'overallSummary' as our schema doesn't have 'errorMessage'.
         result:
           status === 'failed'
             ? {
                 upsert: {
-                  // Buat atau update entri Result dengan pesan error
                   create: {
-                    overallSummary: errorMessage ?? 'Unknown error', // Gunakan 'overallSummary'
+                    overallSummary: errorMessage ?? 'Unknown error',
                   },
                   update: {
-                    overallSummary: errorMessage ?? 'Unknown error', // Gunakan 'overallSummary'
+                    overallSummary: errorMessage ?? 'Unknown error',
                   },
                 },
               }
             : undefined,
-        // --- 👆 PERBAIKAN 4 👆 ---
       },
     });
   }
 
   /**
-   * Mengambil detail job, termasuk path file dari relasi Document.
-   * Dipanggil oleh WorkerService.
+   * Retrieves a job and its related document paths.
+   * Called by WorkerService.
+   * @param jobId The ID of the job to fetch.
+   * @throws {NotFoundException} if the job doesn't exist.
+   * @throws {InternalServerErrorException} if the job is missing document relations.
    */
-  // --- 👇 PERBAIKAN 3: Gunakan 'PrismaDocument' sebagai tipe data 👇 ---
   async getJobById(
     jobId: string,
   ): Promise<Job & { cv: PrismaDocument; report: PrismaDocument }> {
-    // --- 👆 PERBAIKAN 3 👆 ---
     this.logger.log(`Fetching job details for ID: ${jobId}`);
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },
       include: {
-        cv: true, // Sertakan data dari tabel Document (relasi JobCV)
-        report: true, // Sertakan data dari tabel Document (relasi JobReport)
+        cv: true, // Include the related Document for the CV
+        report: true, // Include the related Document for the Report
       },
     });
 
     if (!job) {
       throw new NotFoundException(`Job with ID ${jobId} not found`);
     }
+    // This is a critical data integrity check
     if (!job.cv || !job.report) {
       throw new InternalServerErrorException(
         `Job ${jobId} is missing CV or Report document relations.`,
       );
     }
-    // --- 👇 PERBAIKAN 3: Gunakan 'PrismaDocument' sebagai tipe data 👇 ---
     return job as Job & { cv: PrismaDocument; report: PrismaDocument };
-    // --- 👆 PERBAIKAN 3 👆 ---
   }
 
   /**
-   * Menyimpan hasil evaluasi AI ke tabel Result
-   * dan menandai Job sebagai "completed".
-   * Dipanggil oleh WorkerService.
+   * Saves the final AI evaluation data to the Result table
+   * and marks the Job as 'completed'.
+   * This is executed in a transaction to ensure atomicity.
+   * Called by WorkerService.
+   * @param jobId The ID of the job to update.
+   * @param resultData The structured AI evaluation data.
    */
   async saveEvaluationResult(
     jobId: string,
@@ -141,10 +162,9 @@ export class JobsService {
   ): Promise<void> {
     this.logger.log(`Saving final AI result for Job ID: ${jobId}`);
 
-    // Gunakan transaksi agar kedua operasi (update Job dan create Result)
-    // berhasil atau gagal bersamaan.
+    // Use a transaction to ensure both updates succeed or fail together.
     await this.prisma.$transaction(async (tx) => {
-      // 1. Buat (atau update) entri Result
+      // 1. Create or update the Result entry
       await tx.result.upsert({
         where: { jobId: jobId },
         create: {
@@ -153,13 +173,10 @@ export class JobsService {
         },
         update: {
           ...resultData,
-          // --- 👇 PERBAIKAN 4: Hapus 'errorMessage' (karena tidak ada di skema) 👇 ---
-          // errorMessage: null, // Hapus pesan error jika ada (dari retry)
-          // --- 👆 PERBAIKAN 4 👆 ---
         },
       });
 
-      // 2. Tandai Job sebagai 'completed'
+      // 2. Mark the parent Job as 'completed'
       await tx.job.update({
         where: { id: jobId },
         data: {
@@ -172,8 +189,9 @@ export class JobsService {
   }
 
   /**
-   * Mengambil Job DAN Result terkait (jika ada).
-   * Dipanggil oleh ResultService.
+   * Retrieves a job and its related result (if it exists).
+   * Called by ResultService.
+   * @param jobId The ID of the job to fetch.
    */
   async getJobWithResult(
     jobId: string,
@@ -182,7 +200,7 @@ export class JobsService {
     return this.prisma.job.findUnique({
       where: { id: jobId },
       include: {
-        result: true, // Sertakan data dari tabel Result
+        result: true, // Include the related Result
       },
     });
   }

@@ -1,12 +1,21 @@
+/**
+ * @file worker.service.ts
+ * @description This service contains the core business logic for the AI evaluation pipeline.
+ * It is called by the WorkerProcessor and orchestrates all other services (Jobs, RAG, LLM).
+ */
 import { Injectable, Logger } from '@nestjs/common';
-// ... (impor lain tidak berubah)
 import { JobsService, EvaluationResultData } from '@/modules/jobs/jobs.service';
-import { LlmService } from '@/modules/llm/llm.service';
-import { RagService } from '@/modules/rag/rag.service';
-import { Job, Document } from '@prisma/client';
 import * as fs from 'fs';
+// Use a type alias ('PrismaDocument') to avoid a name collision
+// with the global DOM 'Document' type.
+import { Job, Document as PrismaDocument } from '@prisma/client';
+import { RagService } from '@/modules/rag/rag.service';
+import { LlmService } from '@/modules/llm/llm.service';
 
-// ... (interface LLMEvaluationOutput tidak berubah)
+/**
+ * Defines the structured JSON output we expect from the LLM
+ * for CV and Project evaluations.
+ */
 interface LLMEvaluationOutput {
   score: number;
   feedback: string;
@@ -14,89 +23,93 @@ interface LLMEvaluationOutput {
 
 @Injectable()
 export class WorkerService {
-  // ... (constructor dan logger tidak berubah)
   private readonly logger = new Logger(WorkerService.name);
 
   constructor(
     private readonly jobsService: JobsService,
-    private readonly llmService: LlmService,
     private readonly ragService: RagService,
+    private readonly llmService: LlmService,
   ) {}
 
   /**
-   * Orkestrator utama untuk pipeline AI.
-   * (Fungsi ini tidak berubah)
+   * Main orchestrator method for the AI evaluation pipeline.
+   * This is triggered by the EvaluationWorker (BullMQ processor).
+   * @param jobId The ID of the job to process.
+   * @throws {Error} Throws an error if any step in the pipeline fails,
+   * which signals BullMQ to retry the job.
    */
   async runAIPipeline(jobId: string) {
     this.logger.log(`[AI Pipeline] Starting for Job ID: ${jobId}`);
 
     try {
-      // 1. Ambil data job (termasuk path file)
+      // 1. Get Job & Document Paths
       const job = await this.jobsService.getJobById(jobId);
       this.logger.log(`[AI Pipeline] Fetched job data for: ${job.title}`);
 
-      // 2. Ekstrak teks dari PDF
+      // 2. Extract Text from PDFs
       const { cvText, reportText } = await this.extractTextFromPdfs(job);
       this.logger.log(`[AI Pipeline] Extracted text from PDFs.`);
 
-      // 3. Evaluasi CV
-      this.logger.log(`[AI Pipeline] Starting CV evaluation...`);
+      // 3. Evaluate CV
+      this.logger.log('[AI Pipeline] Starting CV evaluation...');
       const cvContext = await this.ragService.queryForContext(
         `Rubrik penilaian dan deskripsi pekerjaan untuk mengevaluasi CV kandidat: ${job.title}`,
-        4,
+        4, // Retrieve 4 relevant chunks
       );
       const cvPrompt = this.buildCvEvaluationPrompt(cvText, cvContext);
-      const cvEvalJson = await this.llmService.generateEvaluation(cvPrompt);
-      const cvResult = this.parseEvaluation(cvEvalJson, {
-        score: 0.0,
-        feedback: 'Gagal mem-parsing respons LLM untuk CV.',
-      });
+      const cvEvaluationJson =
+        await this.llmService.generateEvaluation(cvPrompt);
+      const cvEvaluation = this.parseEvaluation(
+        cvEvaluationJson,
+        'CV Evaluation', // Pass context for logging
+      );
       this.logger.log(
-        `[AI Pipeline] CV evaluation completed. Score: ${cvResult.score}`,
+        `[AI Pipeline] CV evaluation completed. Score: ${cvEvaluation.score}`,
       );
 
-      // 4. Evaluasi Laporan Proyek
-      this.logger.log(`[AI Pipeline] Starting Project Report evaluation...`);
+      // 4. Evaluate Project Report
+      this.logger.log('[AI Pipeline] Starting Project Report evaluation...');
       const reportContext = await this.ragService.queryForContext(
         `Rubrik penilaian untuk mengevaluasi laporan proyek (case study) backend`,
-        4,
+        4, // Retrieve 4 relevant chunks
       );
-      const reportPrompt = this.buildReportEvaluationPrompt(
+      const reportPrompt = this.buildProjectEvaluationPrompt(
         reportText,
         reportContext,
       );
-      const reportEvalJson =
+      const reportEvaluationJson =
         await this.llmService.generateEvaluation(reportPrompt);
-      const reportResult = this.parseEvaluation(reportEvalJson, {
-        score: 0.0,
-        feedback: 'Gagal mem-parsing respons LLM untuk Laporan Proyek.',
-      });
+      const reportEvaluation = this.parseEvaluation(
+        reportEvaluationJson,
+        'Project Report Evaluation', // Pass context for logging
+      );
       this.logger.log(
-        `[AI Pipeline] Project Report evaluation completed. Score: ${reportResult.score}`,
+        `[AI Pipeline] Project Report evaluation completed. Score: ${reportEvaluation.score}`,
       );
 
-      // 5. Buat Ringkasan (Overall Summary)
-      this.logger.log(`[AI Pipeline] Generating overall summary...`);
+      // 5. Generate Final Summary
+      this.logger.log('[AI Pipeline] Generating overall summary...');
       const summaryPrompt = this.buildSummaryPrompt(
-        cvResult,
-        reportResult,
         job.title,
+        cvEvaluation,
+        reportEvaluation,
       );
-      const overallSummary =
-        (await this.llmService.generateEvaluation(summaryPrompt)) ||
-        'Gagal menghasilkan ringkasan akhir.';
-      this.logger.log(`[AI Pipeline] Overall summary generated.`);
+      // Note: We expect the summary prompt to return raw text, not JSON.
+      const summary =
+        (await this.llmService.generateEvaluation(summaryPrompt)) ??
+        'Failed to generate summary.';
+      this.logger.log('[AI Pipeline] Overall summary generated.');
 
-      // 6. Susun hasil akhir
+      // 6. Prepare final result data
       const finalResult: EvaluationResultData = {
-        cvMatchRate: cvResult.score,
-        projectScore: reportResult.score,
-        cvFeedback: cvResult.feedback,
-        projectFeedback: reportResult.feedback,
-        overallSummary: overallSummary,
+        cvMatchRate: cvEvaluation.score,
+        cvFeedback: cvEvaluation.feedback,
+        projectScore: reportEvaluation.score,
+        projectFeedback: reportEvaluation.feedback,
+        overallSummary: summary,
       };
 
-      // 7. Simpan hasil ke database dan tandai job 'completed'
+      // 7. Save results to DB and mark job as 'completed'
       await this.jobsService.saveEvaluationResult(jobId, finalResult);
       this.logger.log(
         `[AI Pipeline] Successfully saved results for Job ID: ${jobId}`,
@@ -106,192 +119,223 @@ export class WorkerService {
         `[AI Pipeline] FAILED for Job ID: ${jobId}: ${error.message}`,
         error.stack,
       );
-      // Lempar error agar processor bisa menangkapnya dan menandai job 'failed'
+      // Re-throw the error. This is critical.
+      // It signals to the WorkerProcessor that the job failed,
+      // which in turn signals BullMQ to retry the job.
       throw error;
     }
   }
 
-  // --- 👇 REVISI KUNCI ADA DI FUNGSI INI 👇 ---
+  // ===================================================================
+  // PDF PARSING (using pdfjs-dist)
+  // ===================================================================
 
   /**
-   * Membaca file PDF dari disk dan mem-parsing teksnya menggunakan 'pdfjs-dist'.
+   * Reads the PDF files from disk and extracts their text content.
+   * @param job The job object containing related CV and Report documents.
    */
   private async extractTextFromPdfs(
-    job: Job & { cv: Document; report: Document },
+    job: Job & { cv: PrismaDocument; report: PrismaDocument },
   ): Promise<{ cvText: string; reportText: string }> {
-    this.logger.log(`Reading files: ${job.cv.path} and ${job.report.path}`);
-
-    /**
-     * Helper internal untuk mem-parsing satu buffer PDF menggunakan pdfjs-dist
-     */
-    const parsePdfBuffer = async (buffer: Buffer): Promise<string> => {
-      // 1. Gunakan dynamic import() dan tunjuk ke build 'legacy' CJS
-      // Sesuai dengan warning di log Anda.
-      // ⛔️ JANGAN GUNAKAN: const pdfjsLib = await import('pdfjs-dist');
-      // ✅ GUNAKAN INI:
-      const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
-
-      // 2. Set worker ke 'legacy' worker CJS
-      // ⛔️ JANGAN GUNAKAN: pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.cjs';
-      // ✅ GUNAKAN INI:
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'pdfjs-dist/legacy/build/pdf.worker.js';
-
-      // 3. Load dokumen dari buffer (ArrayBuffer)
-      // Perlu konversi Buffer -> ArrayBuffer
-      const arrayBuffer = Uint8Array.from(buffer).buffer;
-      const loadingTask = pdfjsLib.getDocument(arrayBuffer);
-      const doc = await loadingTask.promise;
-
-      // 4. Loop setiap halaman dan ekstrak teks
-      let fullText = '';
-      for (let i = 1; i <= doc.numPages; i++) {
-        const page = await doc.getPage(i);
-        const textContent = await page.getTextContent();
-
-        // Gabungkan semua potongan teks di halaman
-        const pageText = textContent.items
-          .map((item) => (item as any).str) // (item as any) untuk akses .str
-          .join(' ');
-
-        fullText += pageText + '\n'; // Tambahkan newline antar halaman
-      }
-      return fullText;
-    };
-
     try {
-      // 5. Baca file buffer dari path
+      this.logger.log(`Reading files: ${job.cv.path} and ${job.report.path}`);
+
+      // 1. Read file buffers from the paths stored in the database
       const cvBuffer = fs.readFileSync(job.cv.path);
       const reportBuffer = fs.readFileSync(job.report.path);
 
-      // 6. Parse kedua PDF secara paralel
+      // 2. Parse both PDF buffers in parallel
       const [cvText, reportText] = await Promise.all([
-        parsePdfBuffer(cvBuffer),
-        parsePdfBuffer(reportBuffer),
+        this.parsePdfBuffer(cvBuffer),
+        this.parsePdfBuffer(reportBuffer),
       ]);
 
       return {
-        cvText: cvText || '',
-        reportText: reportText || '',
+        cvText: cvText,
+        reportText: reportText,
       };
     } catch (error) {
       this.logger.error(
         `Failed to parse PDF files with pdfjs-dist: ${error.message}`,
+        error.stack,
       );
       throw new Error(`Failed to parse PDF files: ${error.message}`);
     }
   }
 
-  // --- 👆 REVISI SELESAI DI SINI 👆 ---
+  /**
+   * Helper function to parse a single PDF buffer using pdfjs-dist (legacy build).
+   * This uses the 'legacy' build to ensure Node.js (CJS) compatibility.
+   * @param buffer The PDF file buffer.
+   */
+  private async parsePdfBuffer(buffer: Buffer): Promise<string> {
+    // Dynamically import the CJS-friendly 'legacy' build of pdfjs-dist.
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+    const pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.js');
+
+    // We MUST set the 'workerSrc'. This WILL produce harmless warnings
+    // in the log about 'canvas', 'DOMMatrix', etc.
+    // This is NORMAL and SAFE to ignore, as we only need text extraction,
+    // not PDF rendering (which requires those browser APIs).
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+
+    // Convert Node.js Buffer to ArrayBuffer
+    const data = new Uint8Array(buffer);
+    const doc = await pdfjs.getDocument({ data }).promise;
+    let fullText = '';
+
+    // Loop through all pages and extract text content
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n'; // Add newline between pages
+    }
+    return fullText;
+  }
+
+  // ===================================================================
+  // PROMPT ENGINEERING & PARSING
+  // ===================================================================
 
   /**
-   * Helper untuk mem-parsing respons JSON dari LLM dengan aman.
-   * (Fungsi ini tidak berubah)
+   * Safely parses the JSON string returned by the LLM.
+   * @param jsonString The raw string response from the LLM.
+   * @param type A description for logging (e.g., "CV Evaluation").
    */
   private parseEvaluation(
     jsonString: string | null,
-    fallback: LLMEvaluationOutput,
+    type: string,
   ): LLMEvaluationOutput {
-    // ... (kode parseEvaluation tidak berubah)
-    if (!jsonString) return fallback;
+    // Define a fallback object for error cases
+    const fallback: LLMEvaluationOutput = {
+      score: 0,
+      feedback: `Failed to get valid response from LLM for ${type}.`,
+    };
+
+    if (!jsonString) {
+      this.logger.warn(`Failed to get response from LLM for ${type}.`);
+      return fallback;
+    }
+
     try {
-      const cleanJson = jsonString
+      // Clean up markdown code fences (e.g., ```json ... ```)
+      // that models sometimes add to their JSON responses.
+      const cleanedJsonString = jsonString
         .replace(/```json/g, '')
         .replace(/```/g, '')
         .trim();
-      return JSON.parse(cleanJson) as LLMEvaluationOutput;
+      const result = JSON.parse(cleanedJsonString);
+
+      // Type-check the parsed result
+      return {
+        score: typeof result.score === 'number' ? result.score : 0,
+        feedback:
+          typeof result.feedback === 'string'
+            ? result.feedback
+            : 'No feedback provided.',
+      };
     } catch (error) {
-      this.logger.warn(
-        `Failed to parse LLM JSON response. String was: ${jsonString}`,
+      this.logger.error(
+        `Failed to parse JSON response for ${type}: ${error.message}`,
+        jsonString,
       );
-      return fallback;
+      // Return a fallback with a more specific error message
+      return {
+        ...fallback,
+        feedback: `Failed to parse JSON response from LLM: ${jsonString}`,
+      };
     }
   }
 
-  // --- PROMPT ENGINEERING HELPERS ---
-  // (Fungsi-fungsi ini tidak berubah)
+  /**
+   * Builds the prompt for evaluating the candidate's CV.
+   * (Prompts remain in Indonesian as they are application content)
+   */
   private buildCvEvaluationPrompt(cvText: string, context: string): string {
-    // ... (kode buildCvEvaluationPrompt tidak berubah)
     return `
-      Anda adalah seorang Perekrut Teknis senior. Tugas Anda adalah mengevaluasi CV kandidat.
-      Anda HARUS membalas HANYA dengan format JSON yang valid.
+      Anda adalah seorang Perekrut Teknis senior. Tugas Anda adalah mengevaluasi CV kandidat berdasarkan rubrik dan deskripsi pekerjaan yang disediakan.
 
-      KONTEKS (Deskripsi Pekerjaan & Rubrik Penilaian):
+      Konteks (Rubrik & Deskripsi Pekerjaan):
       ---
       ${context}
       ---
 
-      CV KANDIDAT:
+      CV Kandidat:
       ---
       ${cvText}
       ---
 
-      Instruksi:
-      1. Bandingkan CV KANDIDAT dengan KONTEKS.
-      2. Berikan "score" (Float antara 0.0 hingga 1.0) yang merepresentasikan seberapa cocok CV tersebut dengan KONTEKS. 1.0 berarti sangat cocok.
-      3. Berikan "feedback" (String) yang merangkum kekuatan dan kelemahan kandidat berdasarkan KONTEKS.
+      Tugas:
+      1. Evaluasi CV kandidat (skor 0.0 hingga 1.0) berdasarkan seberapa cocok dia dengan Konteks.
+      2. Berikan feedback singkat (2-3 kalimat) yang menjelaskan skor Anda.
+      3. Kembalikan HANYA JSON. JANGAN tambahkan teks lain.
 
-      Balas HANYA dengan format JSON berikut:
+      Format JSON:
       {
-        "score": <float_score>,
-        "feedback": "<string_feedback>"
+        "score": <skor_float_antara_0.0_dan_1.0>,
+        "feedback": "<feedback_singkat_anda>"
       }
     `;
   }
 
-  private buildReportEvaluationPrompt(
+  /**
+   * Builds the prompt for evaluating the candidate's Project Report.
+   */
+  private buildProjectEvaluationPrompt(
     reportText: string,
     context: string,
   ): string {
-    // ... (kode buildReportEvaluationPrompt tidak berubah)
     return `
-      Anda adalah seorang Principal Backend Engineer. Tugas Anda adalah mengevaluasi Laporan Proyek (Case Study) kandidat.
-      Anda HARUS membalas HANYA dengan format JSON yang valid.
+      Anda adalah seorang Staf Backend Engineer. Tugas Anda adalah mengevaluasi laporan proyek (case study) kandidat berdasarkan rubrik yang disediakan.
 
-      KONTEKS (Rubrik Penilaian Case Study):
+      Konteks (Rubrik Penilaian):
       ---
       ${context}
       ---
 
-      LAPORAN PROYEK KANDIDAT:
+      Laporan Proyek Kandidat:
       ---
       ${reportText}
       ---
 
-      Instruksi:
-      1. Bandingkan LAPORAN PROYEK KANDIDAT dengan KONTEKS (Rubrik).
-      2. Berikan "score" (Float antara 1.0 hingga 5.0) yang merepresentasikan seberapa baik laporan proyek tersebut memenuhi rubrik. 5.0 berarti sempurna.
-      3. Berikan "feedback" (String) yang merangkum kekuatan dan kelemahan laporan proyek tersebut.
+      Tugas:
+      1. Evaluasi laporan proyek (skor 1.0 hingga 5.0) berdasarkan seberapa baik laporan itu memenuhi kriteria dalam Konteks.
+      2. Berikan feedback singkat (2-3 kalimat) yang menjelaskan skor Anda, sebutkan poin kuat dan lemahnya.
+      3. Kembalikan HANYA JSON. JANGAN tambahkan teks lain.
 
-      Balas HANYA dengan format JSON berikut:
+      Format JSON:
       {
-        "score": <float_score>,
-        "feedback": "<string_feedback>"
+        "score": <skor_float_antara_1.0_dan_5.0>,
+        "feedback": "<feedback_singkat_anda>"
       }
     `;
   }
 
+  /**
+   * Builds the prompt for generating the final summary.
+   */
   private buildSummaryPrompt(
-    cvResult: LLMEvaluationOutput,
-    reportResult: LLMEvaluationOutput,
     jobTitle: string,
+    cvEval: LLMEvaluationOutput,
+    projectEval: LLMEvaluationOutput,
   ): string {
-    // ... (kode buildSummaryPrompt tidak berubah)
     return `
-      Anda adalah seorang Engineering Manager.
-      Tugas Anda adalah menulis ringkasan perekrutan (overallSummary) untuk kandidat ${jobTitle}.
-      Anda HARUS membalas HANYA dengan satu paragraf (sebagai string).
+      Anda adalah seorang Manajer Perekrutan.
+      Anda telah menerima dua evaluasi untuk seorang kandidat yang melamar sebagai "${jobTitle}":
 
-      Data Evaluasi CV (Skor: ${cvResult.score}/1.0):
-      ${cvResult.feedback}
+      1. Evaluasi CV:
+         - Skor: ${cvEval.score.toFixed(2)}/1.0
+         - Feedback: ${cvEval.feedback}
 
-      Data Evaluasi Proyek (Skor: ${reportResult.score}/5.0):
-      ${reportResult.feedback}
+      2. Evaluasi Proyek:
+         - Skor: ${projectEval.score.toFixed(1)}/5.0
+         - Feedback: ${projectEval.feedback}
 
-      Instruksi:
-      Tulis ringkasan 3-5 kalimat yang menyimpulkan kelayakan kandidat.
-      Sebutkan kekuatan utama, kelemahan utama, dan rekomendasi (lolos/tidak) untuk wawancara teknis.
-      Balas HANYA dengan string paragraf ringkasan.
+      Tugas:
+      Tulis ringkasan keseluruhan (overall_summary) yang sangat singkat (maksimal 2 kalimat) untuk kandidat ini.
+      Ringkasan ini harus memberikan rekomendasi singkat (misal: "Kandidat kuat", "Kurang cocok", "Perlu ditinjau lebih lanjut").
+      JANGAN kembalikan format JSON. Kembalikan HANYA teks ringkasan.
     `;
   }
 }

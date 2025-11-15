@@ -1,45 +1,64 @@
-import { Injectable } from '@nestjs/common';
+/**
+ * @file evaluate.service.ts
+ * @description This service handles the business logic for the
+ * POST /api/evaluate endpoint. It acts as the "Producer"
+ * for the AI evaluation job queue.
+ */
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { JobsService } from '@/modules/jobs/jobs.service';
-import { CreateEvaluationJobDto } from '@/modules/evaluate/dto';
-import { EVALUATION_QUEUE } from '@/constants';
+import { CreateEvaluationJobDto } from './dto'; // Uses the barrel file (index.ts)
+import { EVALUATION_QUEUE, EVALUATION_JOB_NAME } from '@/constants';
 import { Job } from '@prisma/client';
 
+/**
+ * Service responsible for initiating the AI evaluation process.
+ * This service is the "Producer" in our queueing system.
+ */
 @Injectable()
 export class EvaluateService {
+  private readonly logger = new Logger(EvaluateService.name);
+
+  /**
+   * Injects the JobsService (for DB operations) and the BullMQ Queue.
+   * @param jobsService The service to interact with the Job database.
+   * @param evaluationQueue The BullMQ queue instance for adding jobs.
+   */
   constructor(
-    // 1. Inject JobsService (dari JobsModule) untuk interaksi DB
+    // 1. Inject JobsService (from JobsModule) for database interaction
     private readonly jobsService: JobsService,
 
-    // 2. Inject BullMQ Queue dengan nama 'evaluation'
+    // 2. Inject the BullMQ queue named 'evaluation'
     @InjectQueue(EVALUATION_QUEUE)
     private readonly evaluationQueue: Queue,
   ) {}
 
   /**
-   * Logika utama untuk endpoint POST /evaluate
-   * 1. Buat entri Job di database
-   * 2. Tambahkan job ke queue BullMQ untuk diproses worker
+   * Main logic for the POST /evaluate endpoint.
+   * 1. Creates a new Job entry in the PostgreSQL database.
+   * 2. Adds the job to the BullMQ (Redis) queue for background processing.
+   * @param dto The validated DTO containing title, cvId, and reportId.
+   * @returns The newly created Job object (with 'queued' status).
    */
   async createEvaluationJob(dto: CreateEvaluationJobDto): Promise<Job> {
     const { title, cvId, reportId } = dto;
+    this.logger.log(`Received new evaluation request for: ${title}`);
 
-    // Langkah 1: Buat entri Job di PostgreSQL
-    // Kita panggil JobsService (sesuai arsitektur Anda)
-    const newJob = await this.jobsService.createJob({
-      title,
-      cvId,
-      reportId,
-    });
+    // Step 1: Create the Job entry in PostgreSQL
+    // We delegate this to the centralized JobsService.
+    const newJob = await this.jobsService.createJob(title, cvId, reportId);
 
-    // Langkah 2: Kirim job ke Redis (BullMQ) untuk diproses
-    // 'evaluate-job' adalah nama tugasnya (bisa apa saja)
-    // Datanya adalah jobId, yang akan diambil oleh worker
-    await this.evaluationQueue.add('evaluate-job', {
-      jobId: newJob.id,
-    });
+    // Step 2: Add the job to the Redis queue for the worker to process
+    // We use the centralized constant for the job name.
+    await this.evaluationQueue.add(
+      EVALUATION_JOB_NAME, // The specific name of the job
+      {
+        jobId: newJob.id, // The payload the worker will receive
+      },
+    );
 
+    this.logger.log(`Job ${newJob.id} successfully added to the queue.`);
     return newJob;
   }
 }

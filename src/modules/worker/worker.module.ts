@@ -1,32 +1,48 @@
+/**
+ * @file worker.module.ts
+ * @description This module is responsible for the background AI processing.
+ * It registers the BullMQ 'EVALUATION_QUEUE' processor
+ * and provides the WorkerService that orchestrates the AI pipeline.
+ */
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { EVALUATION_QUEUE } from '@/constants';
-import { JobsModule } from '@/modules/jobs/jobs.module';
-import { EvaluationWorker } from '@/modules/worker/worker.processor';
-import { WorkerService } from '@/modules/worker/worker.service';
 
-// --- 👇 REVISI: Impor Modul AI 👇 ---
+// --- Foundation Modules ---
+// Import modules whose services are required by this module's providers
+import { JobsModule } from '@/modules/jobs/jobs.module';
 import { LlmModule } from '@/modules/llm/llm.module';
 import { RagModule } from '@/modules/rag/rag.module';
-// --- 👆 REVISI 👆 ---
 
+// --- Local Module Files ---
+// Use relative paths for local files within the same module.
+// Using global path aliases (e.g., '@/modules/worker/...') for
+// sibling files can cause circular dependency issues at runtime.
+import { EvaluationWorker } from './worker.processor';
+import { WorkerService } from './worker.service';
+
+/**
+ * Encapsulates all background processing logic.
+ * This module imports all necessary services (Jobs, LLM, RAG)
+ * and provides them to the WorkerService and EvaluationWorker.
+ */
 @Module({
   imports: [
-    // 1. Daftarkan 'evaluation' queue
+    // Register the 'evaluation' queue, making it available
+    // for the @Processor() decorator in EvaluationWorker.
     BullModule.registerQueue({
       name: EVALUATION_QUEUE,
     }),
 
-    // 2. Impor modul-modul yang layanannya (services)
-    //    dibutuhkan oleh provider di modul ini
-    JobsModule, // Dibutuhkan oleh WorkerService & EvaluationWorker
-    LlmModule, // Dibutuhkan oleh WorkerService
-    RagModule, // Dibutuhkan oleh WorkerService
+    // Import foundation modules needed by the WorkerService
+    JobsModule, // Needed by WorkerService & EvaluationWorker
+    LlmModule, // Needed by WorkerService
+    RagModule, // Needed by WorkerService
   ],
   providers: [
-    EvaluationWorker, // Processor BullMQ
-    WorkerService, // Service yang berisi logika AI
+    EvaluationWorker, // The BullMQ processor (consumer)
+    WorkerService, // The service containing the core pipeline logic
   ],
-  exports: [WorkerService], // Ekspor jika ada modul lain yang butuh
+  exports: [WorkerService], // Exported in case other modules need it
 })
 export class WorkerModule {}
