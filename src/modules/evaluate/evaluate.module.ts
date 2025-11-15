@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { EvaluateController } from './evaluate.controller';
 import { EvaluateService } from './evaluate.service';
-import { EVALUATION_QUEUE } from '@/constants/queues';
+import { EVALUATION_QUEUE } from '@/constants';
 import { JobsModule } from '@/modules/jobs/jobs.module';
 
 @Module({

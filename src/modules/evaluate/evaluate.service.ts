@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { JobsService } from '@/modules/jobs/jobs.service';
 import { CreateEvaluationJobDto } from '@/modules/evaluate/dto';
-import { EVALUATION_QUEUE } from '@/constants/queues';
+import { EVALUATION_QUEUE } from '@/constants';
 import { Job } from '@prisma/client';
 
 @Injectable()

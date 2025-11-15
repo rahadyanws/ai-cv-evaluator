@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { EVALUATION_QUEUE } from '@/constants/queues';
+import { EVALUATION_QUEUE } from '@/constants';
 import { JobsModule } from '@/modules/jobs/jobs.module';
 import { EvaluationWorker } from '@/modules/worker/worker.processor';
 import { WorkerService } from '@/modules/worker/worker.service';

@@ -1,6 +1,6 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { EVALUATION_QUEUE } from '@/constants/queues';
+import { EVALUATION_QUEUE } from '@/constants';
 import { Logger } from '@nestjs/common';
 import { JobsService } from '@/modules/jobs/jobs.service';
 import { WorkerService } from './worker.service'; // Service untuk logika AI

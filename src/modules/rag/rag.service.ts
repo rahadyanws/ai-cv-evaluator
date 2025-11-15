@@ -17,13 +17,14 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { QDRANT_COLLECTION_NAME } from '@/constants';
 
 @Injectable()
 export class RagService implements OnModuleInit {
   private readonly logger = new Logger(RagService.name);
   private qdrantClient: QdrantClient;
   private textSplitter: RecursiveCharacterTextSplitter;
-  private readonly COLLECTION_NAME = 'ground_truth_docs';
+  private readonly COLLECTION_NAME = QDRANT_COLLECTION_NAME;
 
   constructor(private llmService: LlmService) {
     this.qdrantClient = new QdrantClient({

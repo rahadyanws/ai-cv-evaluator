@@ -1,85 +1,45 @@
+/**
+ * @file upload.controller.ts
+ * @description Controller for handling file uploads.
+ * Defines the POST /api/upload endpoint.
+ */
 import {
   Controller,
-  FileTypeValidator,
-  HttpException,
-  HttpStatus,
-  MaxFileSizeValidator,
-  ParseFilePipe,
   Post,
   UploadedFiles,
   UseInterceptors,
+  // Import HttpException and HttpStatus if you need them for custom errors
+  // (though most logic is now in the service)
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { v4 as uuidv4 } from 'uuid';
-import * as fs from 'fs';
-import { UploadService } from '@/modules/upload/upload.service';
-import { UploadResponseDto } from '@/modules/upload/dto';
+import { UploadService } from './upload.service';
+import { UploadResponseDto } from './dto';
+// Import the centralized Multer configuration
+import { multerOptions } from './multer.config';
 
-// Konfigurasi penyimpanan disk lokal
-const UPLOAD_DIR = './uploads';
-
-// Fungsi helper untuk memastikan direktori ada
-const ensureDirExists = (dir: string) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-};
-
-export const multerOptions = {
-  // 1. Validasi Ukuran & Tipe File
-  limits: {
-    fileSize: 1024 * 1024 * 10, // 10MB
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(
-        new HttpException(
-          'File type not supported. Only PDF files are allowed.',
-          HttpStatus.BAD_REQUEST,
-        ),
-        false,
-      );
-    }
-  },
-  // 2. Konfigurasi Penyimpanan
-  storage: diskStorage({
-    destination: (req, file, cb) => {
-      ensureDirExists(UPLOAD_DIR); // Pastikan folder /uploads ada
-      cb(null, UPLOAD_DIR);
-    },
-    filename: (req, file, cb) => {
-      // Buat nama file unik: uuid-nam-asli.pdf
-      const uniqueSuffix = uuidv4();
-      const extension = extname(file.originalname);
-      const filename = `${uniqueSuffix}-${file.originalname
-        .replace(/\s/g, '_') // Ganti spasi dengan _
-        .replace(extension, '')}${extension}`;
-      cb(null, filename);
-    },
-  }),
-};
-
+/**
+ * Controller responsible for the /api/upload route.
+ * Its only job is to receive the request and delegate logic to the UploadService.
+ */
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
   /**
-   * Endpoint untuk mengunggah CV dan Laporan Proyek
-   * Menerima 'cv' dan 'report' dalam satu request multipart/form-data.
-   * [Sesuai Case Study: POST /upload]
+   * Handles the POST /api/upload endpoint.
+   * [Corresponds to Case Study: POST /upload]
+   *
+   * Accepts 'cv' and 'report' files in a single multipart/form-data request
+   * using the defined multerOptions interceptor.
    */
   @Post()
   @UseInterceptors(
     FileFieldsInterceptor(
       [
-        { name: 'cv', maxCount: 1 },
-        { name: 'report', maxCount: 1 },
+        { name: 'cv', maxCount: 1 }, // Field name for CV
+        { name: 'report', maxCount: 1 }, // Field name for Project Report
       ],
-      multerOptions,
+      multerOptions, // Apply our external storage and validation rules
     ),
   )
   async uploadFiles(
@@ -89,18 +49,8 @@ export class UploadController {
       report?: Express.Multer.File[];
     },
   ): Promise<UploadResponseDto> {
-    // Pastikan kedua file ada
-    if (!files.cv || !files.report) {
-      throw new HttpException(
-        'Both "cv" and "report" files are required.',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    const cvFile = files.cv[0];
-    const reportFile = files.report[0];
-
-    // Panggil service untuk menyimpan metadata ke DB
-    return this.uploadService.saveFilesToDb(cvFile, reportFile);
+    // All validation logic (e.g., checking if files exist)
+    // is now handled in the UploadService to keep the controller clean.
+    return this.uploadService.saveFilesToDb(files);
   }
 }

@@ -1,0 +1,24 @@
+Scoring Rubric for Case Study Evaluation
+
+CV Match Evaluation (1-5 scale per parameter)
+
+"Parameter","Description","Scoring Guide"
+"Technical Skills Match (Weight: 40%)","Alignment with job requirements (backend, databases, APIs, cloud, Al/LLM).","$1=$ Irrelevant skills, $2=$ Few overlaps, $3=$ Partial match, $4=$ Strong match, 5 = Excellent match + Al/LLM exposure"
+"Experience Level (Weight: 25%)","Years of experience and project complexity.","1<1 yr/trivial projects, $2=1-2$ yrs, $3= 2-3$ yrs with mid-scale projects, $4=3-4$ yrs solid track record, $5=5+$ yrs / high-impact projects"
+"Relevant Achievements (Weight: 20%)","Impact of past work (scaling, performance, adoption).","$1=1$ No clear achievements, $2=$ Minimal improvements, 3 Some measurable outcomes, $4=$ Significant contributions, $5=$ Major measurable impact"
+"Cultural/Collaboration Fit (Weight: 15%)","Communication, learning mindset, teamwork/leadership.","$1=$ Not demonstrated, $2=$ Minimal, $3=$ Average, $4=$ Good, $5=$ Excellent and well-demonstrated"
+
+Project Deliverable Evaluation (1-5 scale per parameter)
+
+"Parameter","Description","Scoring Guide"
+"Correctness (Prompt & Chaining) (Weight: 30 %.)","Implements prompt design, LLM chaining, RAG context injection..","$1=1$ Not implemented, $2=$ Minimal attempt, $3=$ Works partially, $4=$ Works correctly, $5=$ Fully correct + thoughtful"
+"Code Quality & Structure Weight(: 25%)","Clean, modular, reusable, tested.","$1=$ Poor, $,2=$ Some structure, $3=$ Decent modularity, $4=$ Good structure + some tests, $5=$ Excellent quality + strong tests"
+"Resilience & Error Handling (Weight: 20%)","Handles long jobs, retries, randomness, API failures.","$1=1$ Missing, 2 Minimal, $3=$ Partial handling, $4=$ Solid handling, $5=Robust, production-ready"
+"Documentation & Explanation (Weight: 15%)","README clarity, setup instructions, trade-off explanations.","$1=$ Missing, $2=$ Minimal, $3=$ Adequate, 4 $=1$ Clear, $5=$ Excellent + insightful"
+"Creativity / Bonus (Weight: 10%)","Extra features beyond requirements.","$1=$ None, 2 Very basic, 3 = Useful extras, $4=$ Strong enhancements, $5=$ Outstanding creativity"
+
+Overall Candidate Evaluation
+
+CV Match Rate: Weighted Average (1-5)→ Convert to 0-1 decimal ( $(\times0.2).$
+Project Score: Weighted Average (1-5)
+Overall Summary: Service should return 3-5 sentences (strengths, gaps, recommendations).

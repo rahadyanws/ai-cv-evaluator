@@ -1,40 +1,53 @@
+/**
+ * @file bull.config.ts
+ * @description Provides the root configuration for BullMQ (Redis-based queue system).
+ * This factory service reads Redis connection details from the ConfigService
+ * and sets default job options for resilience (e.g., retries).
+ */
 import { Injectable, Inject } from '@nestjs/common';
 import {
-  SharedBullConfigurationFactory, // <-- DIUBAH DARI BullModuleOptionsFactory
-  BullRootModuleOptions, // <-- DIUBAH DARI BullModuleOptions
+  SharedBullConfigurationFactory,
+  BullRootModuleOptions,
 } from '@nestjs/bullmq';
 import { ConfigType } from '@nestjs/config';
+
 import { redisConfig } from './configuration';
 
 /**
- * Factory service untuk konfigurasi root BullMQ.
- * Ini akan mengambil konfigurasi 'redis' yang sudah divalidasi.
+ * A factory class that dynamically provides BullMQ root configuration.
+ * This is injected into the `BullModule.forRootAsync` in `app.module.ts`.
  */
 @Injectable()
 export class BullConfigService implements SharedBullConfigurationFactory {
-  // <-- DIUBAH
+  /**
+   * Injects the namespaced 'redis' configuration from ConfigService.
+   * @param config The validated and namespaced Redis configuration object.
+   */
   constructor(
     @Inject(redisConfig.KEY)
     private readonly config: ConfigType<typeof redisConfig>,
   ) {}
 
   /**
-   * Metode ini dipanggil oleh BullModule.forRootAsync
+   * Creates the shared BullMQ configuration.
+   * This method is called by NestJS when the BullModule is initialized.
    */
   createSharedConfiguration(): BullRootModuleOptions {
-    // <-- DIUBAH
     return {
-      // Opsi default untuk semua queue
+      // Default options for all jobs created in this application.
+      // This is where we implement the "retries/back-off" requirement
+      // from the case study [cite: "Implement retries/back-off"].
       defaultJobOptions: {
-        attempts: 3, // Coba lagi 3 kali jika gagal
+        attempts: 3, // Attempt a job 3 times before failing.
         backoff: {
           type: 'exponential',
-          delay: 5000, // Tunggu 5 detik sebelum coba lagi
+          delay: 5000, // Wait 5s before the first retry (10s for 2nd, etc.)
         },
-        removeOnComplete: true, // Hapus job dari redis setelah selesai
-        removeOnFail: false, // Simpan job jika gagal untuk debugging
+        removeOnComplete: true, // Clean up successful jobs from Redis.
+        removeOnFail: false, // KEEP failed jobs in Redis for debugging.
       },
-      // Koneksi ke Redis
+
+      // Connection details for the Redis server (read from .env).
       connection: {
         host: this.config.host,
         port: this.config.port,
