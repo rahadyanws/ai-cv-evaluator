@@ -9,3 +9,4 @@ export * from './qdrant';
 export * from './paths';
 export * from './llm';
 export * from './jobs';
+export * from './auth';
